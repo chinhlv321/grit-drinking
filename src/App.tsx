@@ -463,26 +463,16 @@ export default function App() {
                 {proposedDate && (
                   <>
                     {/* Hiển thị danh sách user đã vote rảnh/bận trên lịch */}
-                    <div className="flex flex-col gap-0.5 w-full overflow-hidden mt-3 mb-10">
-                      <div className="text-[10px] font-bold truncate">
-                        <span className="text-orange-500">Rảnh:</span>
-                        {proposedDate.voters && proposedDate.voters.length > 0 ? (
-                          <span className="ml-1">
-                            {proposedDate.voters.map((v, idx) => (
-                              <span key={idx} className={`inline-block mr-1 px-1.5 py-0.5 rounded ${v === voterName ? 'bg-[#F27D26] text-white' : 'bg-orange-100 text-orange-700'}`}>{v === voterName ? '• BẠN' : v}</span>
-                            ))}
-                          </span>
-                        ) : <span className="text-black/30 ml-1">(không ai)</span>}
+                    <div className="flex flex-col gap-0.5 w-full mt-3 mb-10">
+                      <div className="text-[10px] font-bold">
+                        <span className="text-orange-500">
+                          Rảnh: <span className="font-extrabold text-orange-600">{proposedDate.vote_count}</span>
+                        </span>
                       </div>
-                      <div className="text-[10px] font-bold truncate">
-                        <span className="text-red-500">Bận:</span>
-                        {proposedDate.busy_voters && proposedDate.busy_voters.length > 0 ? (
-                          <span className="ml-1">
-                            {proposedDate.busy_voters.map((v, idx) => (
-                              <span key={idx} className={`inline-block mr-1 px-1.5 py-0.5 rounded ${v === voterName ? 'bg-red-500 text-white' : 'bg-red-100 text-red-700'}`}>{v === voterName ? '• BẠN (Bận)' : v}</span>
-                            ))}
-                          </span>
-                        ) : <span className="text-black/30 ml-1">(không ai)</span>}
+                      <div className="text-[10px] font-bold">
+                        <span className="text-red-500">
+                          Bận: <span className="font-extrabold text-red-600">{proposedDate.busy_count}</span>
+                        </span>
                       </div>
                     </div>
 
@@ -694,8 +684,8 @@ export default function App() {
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 xl:grid-cols-12 gap-12">
-                        {/* Calendar Column */}
-                        <div className="xl:col-span-8 space-y-8">
+                        {/* Calendar Column (wider) */}
+                        <div className="xl:col-span-9 space-y-8">
                           <div className="flex items-center justify-between">
                             <h4 className="text-xs font-bold uppercase tracking-widest text-black/30">Lịch bình chọn</h4>
                             <div className="flex gap-4 text-[10px] font-bold uppercase tracking-wider">
@@ -749,8 +739,8 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* Voting Column */}
-                        <div className="xl:col-span-4 space-y-8">
+                        {/* Voting Column (narrower) */}
+                        <div className="xl:col-span-3 space-y-8">
                           <div className="sticky top-12 space-y-8">
                             <div className="space-y-6">
                               <h4 className="text-xs font-bold uppercase tracking-widest text-black/30">Xác nhận tham gia</h4>
