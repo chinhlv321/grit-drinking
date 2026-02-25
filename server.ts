@@ -15,42 +15,58 @@ const db = createClient({
 });
 
 async function initDB() {
-  await db.executeMultiple(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
-      location TEXT NOT NULL,
-      description TEXT,
-      discord_webhook TEXT,
-      status TEXT DEFAULT 'voting',
-      final_date TEXT,
-      final_time TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+  console.log("Initializing database...");
+  try {
+    await db.executeMultiple(`
+      CREATE TABLE IF NOT EXISTS sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        location TEXT NOT NULL,
+        description TEXT,
+        discord_webhook TEXT,
+        status TEXT DEFAULT 'voting',
+        final_date TEXT,
+        final_time TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
 
-    CREATE TABLE IF NOT EXISTS proposed_dates (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id INTEGER,
-      date TEXT NOT NULL,
-      time TEXT NOT NULL,
-      FOREIGN KEY(session_id) REFERENCES sessions(id)
-    );
+      CREATE TABLE IF NOT EXISTS proposed_dates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER,
+        date TEXT NOT NULL,
+        time TEXT NOT NULL,
+        FOREIGN KEY(session_id) REFERENCES sessions(id)
+      );
 
-    CREATE TABLE IF NOT EXISTS votes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      proposed_date_id INTEGER,
-      name TEXT NOT NULL,
-      FOREIGN KEY(proposed_date_id) REFERENCES proposed_dates(id)
-    );
+      CREATE TABLE IF NOT EXISTS votes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        proposed_date_id INTEGER,
+        name TEXT NOT NULL,
+        vote_type TEXT DEFAULT 'free', -- 'free' or 'busy'
+        FOREIGN KEY(proposed_date_id) REFERENCES proposed_dates(id)
+      );
 
-    CREATE TABLE IF NOT EXISTS participants (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id INTEGER,
-      name TEXT NOT NULL,
-      status TEXT DEFAULT 'pending',
-      FOREIGN KEY(session_id) REFERENCES sessions(id)
-    );
-  `);
+      CREATE TABLE IF NOT EXISTS participants (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER,
+        name TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',
+        FOREIGN KEY(session_id) REFERENCES sessions(id)
+      );
+    `);
+    console.log("Base tables initialized.");
+
+    // Migration: Add vote_type to votes if it doesn't exist
+    try {
+      await db.execute("ALTER TABLE votes ADD COLUMN vote_type TEXT DEFAULT 'free'");
+      console.log("Migration: vote_type column added.");
+    } catch (e) {
+      console.log("Migration: vote_type column already exists or error ignored.");
+    }
+  } catch (err) {
+    console.error("Database initialization failed:", err);
+    throw err;
+  }
 }
 
 async function startServer() {
@@ -73,10 +89,12 @@ async function startServer() {
 
   // API Routes
   app.get("/api/sessions", async (req, res) => {
+    console.log("GET /api/sessions");
     try {
       const result = await db.execute("SELECT * FROM sessions ORDER BY created_at DESC");
       res.json(result.rows.map(serializeRow));
     } catch (err: any) {
+      console.error("Error in GET /api/sessions:", err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -129,11 +147,11 @@ async function startServer() {
       
       const proposedDatesRes = await db.execute({
         sql: `
-          SELECT pd.*, COUNT(v.id) as vote_count 
+          SELECT pd.*, 
+                 (SELECT COUNT(*) FROM votes WHERE proposed_date_id = pd.id AND vote_type = 'free') as vote_count,
+                 (SELECT COUNT(*) FROM votes WHERE proposed_date_id = pd.id AND vote_type = 'busy') as busy_count
           FROM proposed_dates pd 
-          LEFT JOIN votes v ON pd.id = v.proposed_date_id 
           WHERE pd.session_id = ? 
-          GROUP BY pd.id
           ORDER BY vote_count DESC, pd.id ASC
         `,
         args: [req.params.id]
@@ -144,11 +162,16 @@ async function startServer() {
       // Get who voted for what
       for (let i = 0; i < proposed_dates.length; i++) {
         const pd = proposed_dates[i];
-        const votersRes = await db.execute({
-          sql: "SELECT name FROM votes WHERE proposed_date_id = ?",
+        const freeVotersRes = await db.execute({
+          sql: "SELECT name FROM votes WHERE proposed_date_id = ? AND vote_type = 'free'",
           args: [pd.id as any]
         });
-        (proposed_dates[i] as any).voters = votersRes.rows.map(v => v.name);
+        const busyVotersRes = await db.execute({
+          sql: "SELECT name FROM votes WHERE proposed_date_id = ? AND vote_type = 'busy'",
+          args: [pd.id as any]
+        });
+        (proposed_dates[i] as any).voters = freeVotersRes.rows.map(v => v.name);
+        (proposed_dates[i] as any).busy_voters = busyVotersRes.rows.map(v => v.name);
       }
 
       const serializedSession = serializeRow(session);
@@ -163,25 +186,28 @@ async function startServer() {
 
   app.post("/api/sessions/:id/vote", async (req, res) => {
     try {
-      const { name, proposed_date_ids } = req.body;
+      const { name, proposed_date_ids, vote_type = 'free' } = req.body;
       if (!name || !Array.isArray(proposed_date_ids)) {
         return res.status(400).json({ error: "Invalid vote data" });
       }
       
       const tx = await db.transaction("write");
       try {
-        await tx.execute({
-          sql: `DELETE FROM votes WHERE name = ? AND proposed_date_id IN (
-            SELECT id FROM proposed_dates WHERE session_id = ?
-          )`,
-          args: [name, req.params.id]
-        });
-
-        for (const pdId of proposed_date_ids) {
+        // Only delete existing votes for the specific dates being submitted by this user
+        // This allows them to have both 'free' and 'busy' votes in the same session on different dates
+        if (proposed_date_ids.length > 0) {
+          const placeholders = proposed_date_ids.map(() => "?").join(",");
           await tx.execute({
-            sql: "INSERT INTO votes (proposed_date_id, name) VALUES (?, ?)",
-            args: [pdId, name]
+            sql: `DELETE FROM votes WHERE name = ? AND proposed_date_id IN (${placeholders})`,
+            args: [name, ...proposed_date_ids]
           });
+
+          for (const pdId of proposed_date_ids) {
+            await tx.execute({
+              sql: "INSERT INTO votes (proposed_date_id, name, vote_type) VALUES (?, ?, ?)",
+              args: [pdId, name, vote_type]
+            });
+          }
         }
         await tx.commit();
         res.json({ success: true });
@@ -195,9 +221,47 @@ async function startServer() {
     }
   });
 
+  app.post("/api/sessions/:id/clear-votes", async (req, res) => {
+    console.log(`POST /api/sessions/${req.params.id}/clear-votes - Name: ${req.body.name}`);
+    try {
+      const { name } = req.body;
+      if (!name) return res.status(400).json({ error: "Name required" });
+
+      const result = await db.execute({
+        sql: `DELETE FROM votes WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND proposed_date_id IN (
+          SELECT id FROM proposed_dates WHERE session_id = ?
+        )`,
+        args: [name, req.params.id]
+      });
+      console.log(`Deleted ${result.rowsAffected} votes for ${name}`);
+      res.json({ success: true, deletedCount: result.rowsAffected });
+    } catch (err: any) {
+      console.error("Error clearing votes:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/sessions/:id/remove-vote", async (req, res) => {
+    try {
+      const { name, proposed_date_id } = req.body;
+      if (!name || !proposed_date_id) return res.status(400).json({ error: "Name and date ID required" });
+
+      await db.execute({
+        sql: "DELETE FROM votes WHERE name = ? AND proposed_date_id = ?",
+        args: [name, proposed_date_id]
+      });
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.post("/api/sessions/:id/confirm", async (req, res) => {
     try {
-      const { date, time } = req.body;
+      const { date, time, password } = req.body;
+      if (password !== "grit321") {
+        return res.status(401).json({ error: "Sai mật khẩu" });
+      }
       await db.execute({
         sql: "UPDATE sessions SET status = 'confirmed', final_date = ?, final_time = ? WHERE id = ?",
         args: [date, time || null, req.params.id]
@@ -245,6 +309,11 @@ async function startServer() {
     }
   });
 
+  // Catch-all for API routes to prevent falling back to SPA HTML
+  app.all("/api/*", (req, res) => {
+    res.status(404).json({ error: `API route ${req.method} ${req.url} not found` });
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -264,4 +333,15 @@ async function startServer() {
   });
 }
 
-startServer();
+
+// Global error handler for unhandled promise rejections and uncaught exceptions
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception thrown:', err);
+});
+
+startServer().catch((err) => {
+  console.error('Fatal error starting server:', err);
+});
