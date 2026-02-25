@@ -431,7 +431,7 @@ export default function App() {
                 key={dateStr}
                 onClick={() => proposedDate && toggleVote(proposedDate.id)}
                 className={`
-                  aspect-square flex flex-col items-start justify-start p-4 rounded-[32px] relative transition-all group overflow-hidden
+                  aspect-square flex flex-col items-start justify-start p-4 rounded-[32px] relative transition-all group
                   ${proposedDate ? 'cursor-pointer' : 'opacity-20 pointer-events-none'}
                   ${isSelected 
                     ? (voteType === 'free' ? 'bg-[#F27D26] text-white shadow-xl scale-[1.02] z-10' : 'bg-red-500 text-white shadow-xl scale-[1.02] z-10') 
@@ -442,21 +442,21 @@ export default function App() {
                 `}
               >
                 {/* Date Number - Top Left */}
-                <span className="text-2xl font-serif font-bold relative z-10">
+                <span className="text-2xl font-serif font-bold relative z-10 mt-1">
                   {date.getDate()}
                 </span>
 
-                {/* Individual Delete Button - Top Right (Absolute) */}
+                {/* Individual Delete Button - Top Right (Absolute, smaller & slightly outside day UI) */}
                 {iVoted && !isSelected && (
                   <button 
                     onClick={(e) => {
                       e.stopPropagation();
                       if (proposedDate) handleRemoveVote(proposedDate.id);
                     }}
-                    className="absolute top-2 right-2 p-2.5 bg-red-500 text-white rounded-full transition-all shadow-lg z-40 hover:scale-110 active:scale-95"
+                    className="absolute -top-1 -right-1 p-1.5 bg-white text-red-500 border border-red-200 rounded-full transition-all shadow-md z-40 hover:bg-red-500 hover:text-white hover:shadow-lg active:scale-95"
                     title="Hủy vote ngày này"
                   >
-                    <Trash2 size={16} />
+                    <Trash2 size={12} />
                   </button>
                 )}
                 
