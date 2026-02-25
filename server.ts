@@ -60,11 +60,22 @@ async function startServer() {
   app.use(express.json());
   const PORT = 3000;
 
+  // Helper to serialize rows containing BigInts
+  const serializeRow = (row: any) => {
+    const newRow = { ...row };
+    for (const key in newRow) {
+      if (typeof newRow[key] === 'bigint') {
+        newRow[key] = Number(newRow[key]);
+      }
+    }
+    return newRow;
+  };
+
   // API Routes
   app.get("/api/sessions", async (req, res) => {
     try {
       const result = await db.execute("SELECT * FROM sessions ORDER BY created_at DESC");
-      res.json(result.rows);
+      res.json(result.rows.map(serializeRow));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -91,7 +102,7 @@ async function startServer() {
           }
         }
         await tx.commit();
-        res.json({ id: sessionId });
+        res.json({ id: Number(sessionId) });
       } catch (err) {
         await tx.rollback();
         throw err;
@@ -140,7 +151,11 @@ async function startServer() {
         (proposed_dates[i] as any).voters = votersRes.rows.map(v => v.name);
       }
 
-      res.json({ ...session, participants: participantsRes.rows, proposed_dates });
+      const serializedSession = serializeRow(session);
+      const serializedParticipants = participantsRes.rows.map(serializeRow);
+      const serializedProposedDates = proposed_dates.map(serializeRow);
+
+      res.json({ ...serializedSession, participants: serializedParticipants, proposed_dates: serializedProposedDates });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
