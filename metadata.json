@@ -1,0 +1,5 @@
+{
+  "name": "Nhậu Chốt - Bot Lịch Nhậu",
+  "description": "Ứng dụng quản lý, chốt lịch nhậu và thông báo qua Discord Webhook.",
+  "requestFramePermissions": []
+}
