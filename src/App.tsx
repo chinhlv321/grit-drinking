@@ -58,12 +58,16 @@ export default function App() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deletePassword, setDeletePassword] = useState('');
   const [confirmingDate, setConfirmingDate] = useState<ProposedDate | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [loadingSessionId, setLoadingSessionId] = useState<number | null>(null);
 
   useEffect(() => {
     fetchSessions();
   }, []);
 
   const fetchSessions = async () => {
+    setIsLoading(true);
     try {
       const res = await fetch('/api/sessions');
       if (!res.ok) throw new Error('Failed to fetch sessions');
@@ -71,10 +75,13 @@ export default function App() {
       setSessions(data);
     } catch (err) {
       console.error(err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const fetchSessionDetails = async (id: number) => {
+    setLoadingSessionId(id);
     try {
       const res = await fetch(`/api/sessions/${id}`);
       if (!res.ok) throw new Error('Failed to fetch session details');
@@ -83,11 +90,14 @@ export default function App() {
       setSelectedVotes([]);
     } catch (err) {
       console.error(err);
+    } finally {
+      setLoadingSessionId(null);
     }
   };
 
   const handleCreateSession = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsProcessing(true);
     
     // Auto-generate 30 days starting from today
     const proposed_dates = [];
@@ -128,44 +138,96 @@ export default function App() {
           discord_webhook: '', 
           proposed_dates: [] 
         });
-        fetchSessions();
+        await fetchSessions();
       } else {
         alert('Lỗi khi tạo kèo: ' + (data.error || 'Không xác định'));
       }
     } catch (err: any) {
       alert('Lỗi kết nối: ' + err.message);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   const handleVote = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSession || !voterName || selectedVotes.length === 0) return;
-    const res = await fetch(`/api/sessions/${selectedSession.id}/vote`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: voterName, proposed_date_ids: selectedVotes })
+    
+    setIsProcessing(true);
+    
+    // Optimistic Update
+    const originalSession = { ...selectedSession };
+    const updatedProposedDates = selectedSession.proposed_dates?.map(pd => {
+      if (selectedVotes.includes(pd.id)) {
+        const alreadyVoted = pd.voters.includes(voterName);
+        if (!alreadyVoted) {
+          return {
+            ...pd,
+            vote_count: pd.vote_count + 1,
+            voters: [...pd.voters, voterName]
+          };
+        }
+      } else {
+        // If they were in voters but now unselected (though UI doesn't allow unvoting in this simple way yet)
+        const wasVoter = pd.voters.includes(voterName);
+        if (wasVoter) {
+          return {
+            ...pd,
+            vote_count: Math.max(0, pd.vote_count - 1),
+            voters: pd.voters.filter(v => v !== voterName)
+          };
+        }
+      }
+      return pd;
     });
-    if (res.ok) {
-      fetchSessionDetails(selectedSession.id);
+    
+    setSelectedSession({
+      ...selectedSession,
+      proposed_dates: updatedProposedDates
+    });
+
+    try {
+      const res = await fetch(`/api/sessions/${selectedSession.id}/vote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: voterName, proposed_date_ids: selectedVotes })
+      });
+      if (res.ok) {
+        await fetchSessionDetails(selectedSession.id);
+      } else {
+        setSelectedSession(originalSession);
+        alert("Lỗi khi gửi vote");
+      }
+    } catch (err) {
+      setSelectedSession(originalSession);
+      alert("Lỗi kết nối");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   const handleConfirm = async () => {
     if (!selectedSession || !confirmingDate) return;
-    const res = await fetch(`/api/sessions/${selectedSession.id}/confirm`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date: confirmingDate.date, time: confirmingDate.time })
-    });
-    if (res.ok) {
-      setConfirmingDate(null);
-      fetchSessionDetails(selectedSession.id);
+    setIsProcessing(true);
+    try {
+      const res = await fetch(`/api/sessions/${selectedSession.id}/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: confirmingDate.date, time: confirmingDate.time })
+      });
+      if (res.ok) {
+        setConfirmingDate(null);
+        await fetchSessionDetails(selectedSession.id);
+      }
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   const handleDeleteSession = async () => {
     if (!selectedSession || !deletePassword) return;
 
+    setIsProcessing(true);
     try {
       const res = await fetch(`/api/sessions/${selectedSession.id}/delete`, {
         method: 'POST',
@@ -177,13 +239,15 @@ export default function App() {
         setIsDeleting(false);
         setDeletePassword('');
         setSelectedSession(null);
-        fetchSessions();
+        await fetchSessions();
       } else {
         const data = await res.json();
         alert("Lỗi: " + (data.error || "Không thể xóa kèo"));
       }
     } catch (err) {
       alert("Lỗi kết nối khi xóa kèo");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -222,7 +286,14 @@ export default function App() {
           {/* List of Sessions */}
           <div className="lg:col-span-4 space-y-6">
             <h2 className="text-xs font-bold uppercase tracking-widest text-black/30 mb-4">Danh sách kèo</h2>
-            {sessions.length === 0 && (
+            {isLoading && sessions.length === 0 && (
+              <div className="space-y-4">
+                {[1, 2, 3].map(i => (
+                  <div key={i} className="h-32 bg-black/5 animate-pulse rounded-3xl" />
+                ))}
+              </div>
+            )}
+            {!isLoading && sessions.length === 0 && (
               <div className="p-12 border-2 border-dashed border-black/5 rounded-3xl text-center">
                 <Beer className="mx-auto mb-4 text-black/10" size={48} />
                 <p className="text-black/40 font-medium">Chưa có kèo nào. Tạo ngay!</p>
@@ -232,13 +303,18 @@ export default function App() {
               <motion.div
                 layoutId={`session-${session.id}`}
                 key={session.id}
-                onClick={() => fetchSessionDetails(session.id)}
-                className={`p-6 cursor-pointer transition-all ${
+                onClick={() => !loadingSessionId && fetchSessionDetails(session.id)}
+                className={`p-6 cursor-pointer transition-all relative ${
                   selectedSession?.id === session.id 
                     ? 'bg-[#1A1A1A] text-white shadow-2xl scale-[1.02]' 
                     : 'bg-white border border-black/5 hover:border-black/20 shadow-sm'
-                } rounded-3xl`}
+                } ${loadingSessionId === session.id ? 'opacity-50' : ''} rounded-3xl`}
               >
+                {loadingSessionId === session.id && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/10 rounded-3xl z-10">
+                    <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
                 <div className="flex justify-between items-start mb-4">
                   <h3 className="text-xl font-bold">{session.title}</h3>
                   <div className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${session.status === 'confirmed' ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white'}`}>
@@ -318,10 +394,15 @@ export default function App() {
                           />
                           <button 
                             type="submit" 
-                            disabled={selectedVotes.length === 0 || !voterName.trim()}
+                            disabled={selectedVotes.length === 0 || !voterName.trim() || isProcessing}
                             className="px-8 py-3 bg-[#1A1A1A] text-white rounded-2xl font-bold hover:bg-black disabled:opacity-50 transition-all flex items-center gap-2 whitespace-nowrap"
                           >
-                            <Send size={18} /> Gửi Vote ({selectedVotes.length})
+                            {isProcessing ? (
+                              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                              <Send size={18} />
+                            )}
+                            {isProcessing ? 'Đang gửi...' : `Gửi Vote (${selectedVotes.length})`}
                           </button>
                         </form>
 
@@ -459,9 +540,11 @@ export default function App() {
                   </button>
                   <button 
                     type="submit"
-                    className="flex-[2] px-8 py-4 bg-[#1A1A1A] text-white font-bold rounded-2xl hover:bg-black transition-all shadow-xl"
+                    disabled={isProcessing}
+                    className="flex-[2] px-8 py-4 bg-[#1A1A1A] text-white font-bold rounded-2xl hover:bg-black disabled:opacity-50 transition-all shadow-xl flex items-center justify-center gap-2"
                   >
-                    Tạo kèo & Vote!
+                    {isProcessing && <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                    {isProcessing ? 'Đang tạo...' : 'Tạo kèo & Vote!'}
                   </button>
                 </div>
               </form>
@@ -503,10 +586,11 @@ export default function App() {
                   </button>
                   <button 
                     onClick={handleDeleteSession}
-                    disabled={!deletePassword}
-                    className="flex-1 px-6 py-3 bg-red-500 text-white font-bold rounded-2xl hover:bg-red-600 disabled:opacity-50 transition-all shadow-lg"
+                    disabled={!deletePassword || isProcessing}
+                    className="flex-1 px-6 py-3 bg-red-500 text-white font-bold rounded-2xl hover:bg-red-600 disabled:opacity-50 transition-all shadow-lg flex items-center justify-center gap-2"
                   >
-                    Xóa
+                    {isProcessing && <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                    {isProcessing ? 'Đang xóa...' : 'Xóa'}
                   </button>
                 </div>
               </div>
@@ -543,9 +627,11 @@ export default function App() {
                 </button>
                 <button 
                   onClick={handleConfirm}
-                  className="flex-1 px-6 py-3 bg-emerald-500 text-white font-bold rounded-2xl hover:bg-emerald-600 transition-all shadow-lg"
+                  disabled={isProcessing}
+                  className="flex-1 px-6 py-3 bg-emerald-500 text-white font-bold rounded-2xl hover:bg-emerald-600 disabled:opacity-50 transition-all shadow-lg flex items-center justify-center gap-2"
                 >
-                  Chốt luôn!
+                  {isProcessing && <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                  {isProcessing ? 'Đang chốt...' : 'Chốt luôn!'}
                 </button>
               </div>
             </motion.div>
