@@ -21,6 +21,15 @@
       ]
     },
     "allowImportingTsExtensions": true,
-    "noEmit": true
-  }
+    "noEmit": true,
+    "types": [
+      "vite/client"
+    ]
+  },
+  "exclude": [
+    "worker",
+    "worker-configuration.d.ts",
+    "node_modules",
+    "dist"
+  ]
 }

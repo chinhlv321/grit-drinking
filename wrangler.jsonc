@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "grit-drinking",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "grit-drinking",
+      "database_id": "8dea29e7-cbcc-44d2-93d4-7e87fede5dee"
+    }
+  ],
+  "routes": [{ "pattern": "drinking.grit2great.uk", "custom_domain": true }],
+  "observability": { "enabled": true }
+}

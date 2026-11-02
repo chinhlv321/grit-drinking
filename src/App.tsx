@@ -91,6 +91,7 @@ export default function App() {
       if (!res.ok) throw new Error('Failed to fetch sessions');
       const data = await res.json();
       setSessions(data);
+      if (!selectedSession && data.length > 0) fetchSessionDetails(data[0].id);
     } catch (err) {
       console.error(err);
     } finally {
@@ -104,6 +105,10 @@ export default function App() {
       const res = await fetch(`/api/sessions/${id}`);
       if (!res.ok) throw new Error('Failed to fetch session details');
       const data = await res.json();
+      if (selectedSession?.id !== id && data.proposed_dates?.length) {
+        const first = [...data.proposed_dates].sort((a: ProposedDate, b: ProposedDate) => a.date.localeCompare(b.date))[0];
+        setCurrentCalendarDate(new Date(first.date + 'T00:00:00'));
+      }
       setSelectedSession(data);
       setSelectedVotes([]);
     } catch (err) {
@@ -384,42 +389,40 @@ export default function App() {
     const monthName = new Intl.DateTimeFormat('vi-VN', { month: 'long', year: 'numeric' }).format(currentCalendarDate);
 
     return (
-      <div className="bg-white rounded-[48px] p-10 border border-black/5 shadow-sm">
-        <div className="flex justify-between items-center mb-12">
-          <h3 className="text-3xl font-serif font-bold capitalize">{monthName}</h3>
-          <div className="flex gap-4">
+      <div className="bg-white rounded-3xl p-4 sm:p-6 border border-black/5 shadow-sm">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-2xl font-serif font-bold capitalize">{monthName}</h3>
+          <div className="flex gap-2">
             <button 
               onClick={() => setCurrentCalendarDate(new Date(year, month - 1, 1))}
-              className="p-4 hover:bg-black/5 rounded-full transition-colors border border-black/5"
+              className="p-2 hover:bg-black/5 rounded-full transition-colors border border-black/5"
             >
-              <ChevronLeft size={28} />
+              <ChevronLeft size={20} />
             </button>
             <button 
               onClick={() => setCurrentCalendarDate(new Date(year, month + 1, 1))}
-              className="p-4 hover:bg-black/5 rounded-full transition-colors border border-black/5"
+              className="p-2 hover:bg-black/5 rounded-full transition-colors border border-black/5"
             >
-              <ChevronRight size={28} />
+              <ChevronRight size={20} />
             </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-7 gap-4 mb-8">
+        <div className="grid grid-cols-7 gap-2 mb-2">
           {['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'].map(day => (
-            <div key={day} className="text-center text-sm font-bold text-black/30 uppercase py-4">
+            <div key={day} className="text-center text-xs font-bold text-black/30 uppercase py-2">
               {day}
             </div>
           ))}
         </div>
 
-        <div className="grid grid-cols-7 gap-4">
+        <div className="grid grid-cols-7 gap-2">
           {days.map((date, i) => {
-            if (!date) return <div key={`empty-${i}`} className="aspect-square" />;
+            if (!date) return <div key={`empty-${i}`} className="h-20 sm:h-24" />;
             
             const dateStr = getLocalDateString(date);
             const proposedDate = selectedSession.proposed_dates?.find(pd => pd.date === dateStr);
             const isSelected = proposedDate && selectedVotes.includes(proposedDate.id);
-            const hasVotes = proposedDate && proposedDate.vote_count > 0;
-            const hasBusy = proposedDate && proposedDate.busy_count > 0;
             const isToday = getLocalDateString(new Date()) === dateStr;
             
             const iVotedFree = proposedDate?.voters?.includes(voterName);
@@ -431,18 +434,18 @@ export default function App() {
                 key={dateStr}
                 onClick={() => proposedDate && toggleVote(proposedDate.id)}
                 className={`
-                  aspect-square flex flex-col items-start justify-start p-4 rounded-[32px] relative transition-all group
-                  ${proposedDate ? 'cursor-pointer' : 'opacity-20 pointer-events-none'}
+                  h-20 sm:h-24 flex flex-col items-start justify-between p-2 sm:p-3 rounded-2xl relative transition-all group select-none
+                  ${proposedDate ? 'cursor-pointer' : 'opacity-25 pointer-events-none bg-black/[0.02]'}
                   ${isSelected 
                     ? (voteType === 'free' ? 'bg-[#F27D26] text-white shadow-xl scale-[1.02] z-10' : 'bg-red-500 text-white shadow-xl scale-[1.02] z-10') 
-                    : 'bg-white border border-black/5 hover:border-black/20 hover:shadow-md'
+                    : 'bg-white border-2 border-[#F27D26]/25 hover:border-[#F27D26] hover:shadow-md'
                   }
                   ${isToday && !isSelected ? 'ring-4 ring-[#F27D26]/20 border-[#F27D26]' : ''}
                   ${iVoted && !isSelected ? 'ring-2 ring-black/10 bg-black/[0.03] shadow-inner' : ''}
                 `}
               >
                 {/* Date Number - Top Left */}
-                <span className="text-2xl font-serif font-bold relative z-10 mt-1">
+                <span className="text-lg sm:text-xl font-serif font-bold relative z-10 leading-none">
                   {date.getDate()}
                 </span>
 
@@ -462,41 +465,18 @@ export default function App() {
                 
                 {proposedDate && (
                   <>
-                    {/* Hiển thị danh sách user đã vote rảnh/bận trên lịch */}
-                    <div className="flex flex-col gap-0.5 w-full mt-3 mb-10">
-                      <div className="text-[10px] font-bold">
-                        <span className="text-orange-500">
-                          Rảnh: <span className="font-extrabold text-orange-600">{proposedDate.vote_count}</span>
-                        </span>
-                      </div>
-                      <div className="text-[10px] font-bold">
-                        <span className="text-red-500">
-                          Bận: <span className="font-extrabold text-red-600">{proposedDate.busy_count}</span>
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Vote Counts - Bottom Right (Absolute) */}
-                    <div className="absolute bottom-2 right-2 flex gap-1 pointer-events-none z-20">
-                      {hasVotes && !isSelected && !iVotedFree && (
-                        <div className="w-8 h-8 bg-black text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-white shadow-lg">
-                          {proposedDate.vote_count}
-                        </div>
+                    <div className="flex items-center gap-1 flex-wrap text-[11px] font-bold">
+                      {proposedDate.vote_count > 0 && (
+                        <span className={`px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-white/25' : 'bg-orange-100 text-orange-600'}`}>{proposedDate.vote_count} rảnh</span>
                       )}
-                      {hasBusy && !isSelected && !iVotedBusy && (
-                        <div className="w-8 h-8 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-white shadow-lg">
-                          {proposedDate.busy_count}
-                        </div>
+                      {proposedDate.busy_count > 0 && (
+                        <span className={`px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-white/25' : 'bg-red-100 text-red-600'}`}>{proposedDate.busy_count} bận</span>
+                      )}
+                      {iVoted && !isSelected && (
+                        <span className={`px-1.5 py-0.5 rounded-full text-white ${iVotedFree ? 'bg-[#F27D26]' : 'bg-red-500'}`}>✓ bạn</span>
                       )}
                     </div>
 
-                    {/* My Vote Indicator - Bottom Left (Absolute) */}
-                    {iVoted && !isSelected && (
-                      <div className={`absolute bottom-2 left-2 px-2.5 py-1.5 rounded-full text-[9px] font-bold text-white shadow-md z-20 ${iVotedFree ? 'bg-[#F27D26]' : 'bg-red-500'}`}>
-                        ĐÃ VOTE
-                      </div>
-                    )}
-                    
                     {/* Tooltip for voters (detailed) */}
                     {( (proposedDate.voters && proposedDate.voters.length > 0) || (proposedDate.busy_voters && proposedDate.busy_voters.length > 0) ) && (
                       <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 w-56 p-5 bg-black text-white text-xs rounded-3xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 shadow-2xl">
@@ -546,10 +526,10 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#FDFCFB]">
       {/* Header */}
-      <header className="px-6 py-12 max-w-5xl mx-auto">
+      <header className="px-6 lg:px-10 py-8">
         <div className="flex justify-between items-end">
           <div>
-            <h1 className="text-6xl font-serif font-bold tracking-tight text-[#1A1A1A] mb-2">
+            <h1 className="text-4xl sm:text-5xl font-serif font-bold tracking-tight text-[#1A1A1A] mb-2">
               Nhậu <span className="italic text-[#F27D26]">Chốt</span>
             </h1>
             <p className="text-sm uppercase tracking-[0.2em] font-semibold text-black/40">
@@ -566,11 +546,11 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 pb-24">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+      <main className="px-6 lg:px-10 pb-24">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 xl:gap-8">
           
           {/* List of Sessions */}
-          <div className="lg:col-span-3 space-y-6">
+          <div className="lg:col-span-3 xl:col-span-2 space-y-3">
             <h2 className="text-xs font-bold uppercase tracking-widest text-black/30 mb-4">Danh sách kèo</h2>
             {isLoading && sessions.length === 0 && (
               <div className="space-y-4">
@@ -590,9 +570,9 @@ export default function App() {
                 layoutId={`session-${session.id}`}
                 key={session.id}
                 onClick={() => !loadingSessionId && fetchSessionDetails(session.id)}
-                className={`p-6 cursor-pointer transition-all relative ${
+                className={`p-4 cursor-pointer transition-all relative ${
                   selectedSession?.id === session.id 
-                    ? 'bg-[#1A1A1A] text-white shadow-2xl scale-[1.02]' 
+                    ? 'bg-[#1A1A1A] text-white shadow-xl' 
                     : 'bg-white border border-black/5 hover:border-black/20 shadow-sm'
                 } ${loadingSessionId === session.id ? 'opacity-50' : ''} rounded-3xl`}
               >
@@ -601,9 +581,9 @@ export default function App() {
                     <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   </div>
                 )}
-                <div className="flex justify-between items-start mb-4">
-                  <h3 className="text-xl font-bold">{session.title}</h3>
-                  <div className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${session.status === 'confirmed' ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white'}`}>
+                <div className="flex justify-between items-start gap-2 mb-2">
+                  <h3 className="text-base font-bold leading-snug">{session.title}</h3>
+                  <div className={`shrink-0 px-2 py-1 rounded-full text-[10px] font-bold uppercase whitespace-nowrap ${session.status === 'confirmed' ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white'}`}>
                     {session.status === 'confirmed' ? 'Đã chốt' : 'Đang vote'}
                   </div>
                 </div>
@@ -624,18 +604,18 @@ export default function App() {
           </div>
 
           {/* Details View */}
-          <div className="lg:col-span-9">
+          <div className="lg:col-span-9 xl:col-span-10">
             <AnimatePresence mode="wait">
               {selectedSession ? (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
-                  className="bg-white border border-black/5 rounded-[40px] p-8 lg:p-12 shadow-xl sticky top-8"
+                  className="bg-white border border-black/5 rounded-[32px] p-5 lg:p-8 shadow-xl"
                 >
-                  <div className="flex justify-between items-start mb-8">
+                  <div className="flex justify-between items-start gap-4 mb-6">
                     <div>
-                      <h2 className="text-4xl font-serif font-bold mb-4">{selectedSession.title}</h2>
+                      <h2 className="text-3xl font-serif font-bold mb-4">{selectedSession.title}</h2>
                       <div className="flex flex-wrap gap-4">
                         <span className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold ${selectedSession.status === 'confirmed' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
                           {selectedSession.status === 'confirmed' ? <CheckCircle2 size={16} /> : <Users size={16} />}
@@ -671,7 +651,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="space-y-12">
+                  <div className="space-y-8">
                     {selectedSession.status === 'confirmed' ? (
                       <div className="p-12 bg-emerald-50 border border-emerald-100 rounded-[40px] text-center shadow-inner">
                         <h3 className="text-emerald-800 font-bold text-2xl mb-4">Kèo đã chốt! 🎉</h3>
@@ -683,20 +663,64 @@ export default function App() {
                         )}
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 xl:grid-cols-12 gap-12">
-                        {/* Calendar Column (wider) */}
-                        <div className="xl:col-span-9 space-y-8">
-                          <div className="flex items-center justify-between">
-                            <h4 className="text-xs font-bold uppercase tracking-widest text-black/30">Lịch bình chọn</h4>
-                            <div className="flex gap-4 text-[10px] font-bold uppercase tracking-wider">
-                              <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#F27D26]" /> Rảnh</div>
-                              <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-red-500" /> Bận</div>
-                            </div>
+                      <div className="space-y-6">
+                        {/* Vote bar: name, mode, send — in the order the user acts */}
+                        <div className="sticky top-2 z-30 bg-white/90 backdrop-blur border border-black/5 rounded-3xl p-4 shadow-md flex flex-wrap items-center gap-3">
+                          <input
+                            type="text"
+                            placeholder="Tên của bạn..."
+                            value={voterName}
+                            onChange={(e) => setVoterName(e.target.value)}
+                            className="flex-1 min-w-[10rem] xl:flex-none xl:w-56 px-4 py-3 bg-black/[0.03] rounded-2xl border border-black/5 outline-none focus:border-[#F27D26] transition-all font-medium"
+                          />
+                          <div className="flex p-1 bg-black/[0.04] rounded-2xl">
+                            <button
+                              onClick={() => { setVoteType('free'); setSelectedVotes([]); }}
+                              className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap ${voteType === 'free' ? 'bg-[#F27D26] text-white shadow' : 'text-black/50 hover:text-black'}`}
+                            >
+                              Tôi rảnh
+                            </button>
+                            <button
+                              onClick={() => { setVoteType('busy'); setSelectedVotes([]); }}
+                              className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap ${voteType === 'busy' ? 'bg-red-500 text-white shadow' : 'text-black/50 hover:text-black'}`}
+                            >
+                              Tôi bận
+                            </button>
                           </div>
-                          {renderCalendar()}
+                          <p className="order-last w-full xl:order-none xl:w-auto xl:flex-1 text-sm text-black/50">
+                            {!voterName.trim()
+                              ? 'Nhập tên trước nhé.'
+                              : selectedVotes.length === 0
+                                ? `Bấm vào các ngày bạn ${voteType === 'free' ? 'rảnh' : 'bận'} trên lịch.`
+                                : `Đã chọn ${selectedVotes.length} ngày ${voteType === 'free' ? 'rảnh' : 'bận'}.`}
+                          </p>
+                          <div className="flex gap-2 ml-auto">
+                            <button
+                              onClick={handleClearVotes}
+                              disabled={!voterName.trim() || isProcessing}
+                              className="px-4 py-3 text-red-500 rounded-2xl text-sm font-bold hover:bg-red-50 transition-all disabled:opacity-40 whitespace-nowrap"
+                            >
+                              Hủy vote của tôi
+                            </button>
+                            <button
+                              onClick={handleVote}
+                              disabled={selectedVotes.length === 0 || !voterName.trim() || isProcessing}
+                              className={`px-6 py-3 text-white rounded-2xl font-bold disabled:opacity-40 transition-all flex items-center gap-2 shadow-lg whitespace-nowrap ${voteType === 'free' ? 'bg-[#1A1A1A] hover:bg-black' : 'bg-red-600 hover:bg-red-700'}`}
+                            >
+                              {isProcessing ? (
+                                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              ) : (
+                                <Send size={18} />
+                              )}
+                              {isProcessing ? 'Đang gửi...' : `Gửi vote (${selectedVotes.length})`}
+                            </button>
+                          </div>
+                        </div>
+
+                        {renderCalendar()}
 
                           {/* Bảng tổng hợp user đã vote rảnh/bận cho từng ngày/giờ đề xuất */}
-                          <div className="mt-12">
+                          <div>
                             <h4 className="text-xs font-bold uppercase tracking-widest text-black/30 mb-4">Danh sách người đã vote từng ngày</h4>
                             <div className="overflow-x-auto">
                               <table className="min-w-full border border-black/10 rounded-2xl bg-white">
@@ -737,90 +761,6 @@ export default function App() {
                               </table>
                             </div>
                           </div>
-                        </div>
-
-                        {/* Voting Column (narrower) */}
-                        <div className="xl:col-span-3 space-y-8">
-                          <div className="sticky top-12 space-y-8">
-                            <div className="space-y-6">
-                              <h4 className="text-xs font-bold uppercase tracking-widest text-black/30">Xác nhận tham gia</h4>
-                              <div className="bg-black/5 p-8 rounded-[40px] space-y-8 border border-black/5">
-                                <div>
-                                  <p className="text-sm font-bold text-black/80 mb-4">1. Chọn chế độ vote:</p>
-                                  <div className="flex p-1.5 bg-white rounded-2xl shadow-sm">
-                                    <button 
-                                      onClick={() => { setVoteType('free'); setSelectedVotes([]); }}
-                                      className={`flex-1 py-4 rounded-xl text-sm font-bold transition-all ${voteType === 'free' ? 'bg-[#F27D26] text-white shadow-lg' : 'text-black/40 hover:text-black'}`}
-                                    >
-                                      Tôi rảnh
-                                    </button>
-                                    <button 
-                                      onClick={() => { setVoteType('busy'); setSelectedVotes([]); }}
-                                      className={`flex-1 py-4 rounded-xl text-sm font-bold transition-all ${voteType === 'busy' ? 'bg-red-500 text-white shadow-lg' : 'text-black/40 hover:text-black'}`}
-                                    >
-                                      Tôi bận
-                                    </button>
-                                  </div>
-                                </div>
-
-                                <div>
-                                  <p className="text-sm font-bold text-black/80 mb-4">2. Nhập tên & chọn ngày:</p>
-                                  <input 
-                                    required
-                                    type="text" 
-                                    placeholder="Tên của bạn..." 
-                                    value={voterName}
-                                    onChange={(e) => setVoterName(e.target.value)}
-                                    className="w-full px-6 py-5 bg-white rounded-2xl border border-black/5 outline-none focus:border-[#F27D26] transition-all mb-6 text-lg font-medium shadow-sm"
-                                  />
-                                  
-                                  <div className="flex flex-col gap-4">
-                                    <button 
-                                      onClick={handleVote}
-                                      disabled={selectedVotes.length === 0 || !voterName.trim() || isProcessing}
-                                      className={`w-full py-5 text-white rounded-2xl font-bold disabled:opacity-50 transition-all flex items-center justify-center gap-3 shadow-xl text-lg ${voteType === 'free' ? 'bg-[#1A1A1A] hover:bg-black' : 'bg-red-600 hover:bg-red-700'}`}
-                                    >
-                                      {isProcessing ? (
-                                        <div className="w-6 h-6 border-3 border-white border-t-transparent rounded-full animate-spin" />
-                                      ) : (
-                                        <Send size={20} />
-                                      )}
-                                      {isProcessing ? 'Đang gửi...' : `Gửi Vote (${selectedVotes.length} ngày)`}
-                                    </button>
-
-                                    <button 
-                                      onClick={handleClearVotes}
-                                      disabled={!voterName.trim() || isProcessing}
-                                      className="w-full py-4 bg-white text-red-500 border-2 border-red-50 rounded-2xl text-sm font-bold hover:bg-red-50 hover:border-red-100 transition-all"
-                                    >
-                                      Hủy tất cả vote của tôi
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {selectedVotes.length > 0 && (
-                                <motion.div 
-                                  initial={{ opacity: 0, scale: 0.9 }}
-                                  animate={{ opacity: 1, scale: 1 }}
-                                  className="p-6 bg-amber-50 border border-amber-100 rounded-[32px] shadow-sm"
-                                >
-                                  <p className="text-xs font-bold text-amber-800 uppercase mb-3">Ngày đang chọn:</p>
-                                  <div className="flex flex-wrap gap-2">
-                                    {selectedVotes.map(id => {
-                                      const pd = selectedSession.proposed_dates?.find(p => p.id === id);
-                                      return (
-                                        <span key={id} className="px-3 py-1 bg-white text-amber-700 rounded-full text-[10px] font-bold shadow-sm border border-amber-100">
-                                          {pd?.date ? new Date(pd.date).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }) : ''}
-                                        </span>
-                                      );
-                                    })}
-                                  </div>
-                                </motion.div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
                       </div>
                     )}
 
