@@ -15,6 +15,7 @@ async function handle(req: Request, env: Env, path: string): Promise<Response> {
 
   if (path === "/api/sessions" && method === "POST") {
     const { title, location, description, discord_webhook, proposed_dates } = body;
+    if (!title?.trim() || !location?.trim()) return json({ error: "Thiếu tên kèo hoặc địa điểm" }, 400);
     const session = await db
       .prepare("INSERT INTO sessions (title, location, description, discord_webhook) VALUES (?, ?, ?, ?) RETURNING id")
       .bind(title, location, description || null, discord_webhook || null)
@@ -79,15 +80,23 @@ async function handle(req: Request, env: Env, path: string): Promise<Response> {
 
   switch (action) {
     case "vote": {
-      const { name, proposed_date_ids, vote_type = "free" } = body;
-      if (!name || !Array.isArray(proposed_date_ids)) return json({ error: "Invalid vote data" }, 400);
+      const { proposed_date_ids, vote_type = "free" } = body;
+      const name = String(body.name ?? "").trim();
+      if (!name || name.length > 50 || !Array.isArray(proposed_date_ids) || !["free", "busy"].includes(vote_type)) {
+        return json({ error: "Invalid vote data" }, 400);
+      }
       if (proposed_date_ids.length > 0) {
         // Only replace this user's votes on the submitted dates, so free/busy can coexist on different dates
         const placeholders = proposed_date_ids.map(() => "?").join(",");
         await db.batch([
-          db.prepare(`DELETE FROM votes WHERE name = ? AND proposed_date_id IN (${placeholders})`).bind(name, ...proposed_date_ids),
+          db
+            .prepare(`DELETE FROM votes WHERE LOWER(TRIM(name)) = LOWER(?) AND proposed_date_id IN (${placeholders})`)
+            .bind(name, ...proposed_date_ids),
+          // INSERT ... SELECT skips date ids that don't belong to this session
           ...proposed_date_ids.map((pdId: number) =>
-            db.prepare("INSERT INTO votes (proposed_date_id, name, vote_type) VALUES (?, ?, ?)").bind(pdId, name, vote_type)
+            db
+              .prepare("INSERT INTO votes (proposed_date_id, name, vote_type) SELECT id, ?, ? FROM proposed_dates WHERE id = ? AND session_id = ?")
+              .bind(name, vote_type, pdId, id)
           ),
         ]);
       }
@@ -111,7 +120,10 @@ async function handle(req: Request, env: Env, path: string): Promise<Response> {
     case "remove-vote": {
       const { name, proposed_date_id } = body;
       if (!name || !proposed_date_id) return json({ error: "Name and date ID required" }, 400);
-      await db.prepare("DELETE FROM votes WHERE name = ? AND proposed_date_id = ?").bind(name, proposed_date_id).run();
+      await db
+        .prepare("DELETE FROM votes WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND proposed_date_id = ?")
+        .bind(name, proposed_date_id)
+        .run();
       return json({ success: true });
     }
 
